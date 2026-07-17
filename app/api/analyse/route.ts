@@ -1,5 +1,59 @@
-import {NextResponse} from "next/server";import OpenAI from "openai";import {analyseLocally,maskCredentials} from "@/lib/analyse";import {analysisSchema,requestSchema} from "@/lib/schemas";
-const hits=new Map<string,{n:number,t:number}>();
-export async function POST(req:Request){try{const ip=req.headers.get("x-forwarded-for")||"local";const now=Date.now(),h=hits.get(ip);if(h&&now-h.t<60000&&h.n>=15)return NextResponse.json({error:"Rate limit reached. Please wait a minute and retry."},{status:429});hits.set(ip,!h||now-h.t>=60000?{n:1,t:now}:{n:h.n+1,t:h.t});const parsed=requestSchema.safeParse(await req.json());if(!parsed.success)return NextResponse.json({error:parsed.error.issues[0]?.message||"Invalid input"},{status:400});const{text,url,submissionType,platform}=parsed.data;const safeText=maskCredentials(text);let output=analyseLocally(safeText,url);
-if(process.env.OPENAI_API_KEY){try{const client=new OpenAI({apiKey:process.env.OPENAI_API_KEY});const response=await client.chat.completions.create({model:process.env.OPENAI_MODEL||"gpt-4o-mini",response_format:{type:"json_object"},messages:[{role:"system",content:"You are a Singapore-focused scam risk analyst. Return JSON with riskScore (0-100), riskLevel, scamCategory, confidence (0-100), summary, warningSigns[{indicatorName,explanation,evidence,scoreContribution}], suspiciousPhrases[], recommendedActions[]. Treat rule score as a safety floor unless clear false positive. Never claim certainty."},{role:"user",content:JSON.stringify({content:safeText,url,ruleAssessment:output})}]});const ai=analysisSchema.safeParse(JSON.parse(response.choices[0]?.message.content||"{}"));if(ai.success)output={...ai.data,riskScore:Math.max(output.riskScore,ai.data.riskScore)};}catch(e){console.error("AI fallback",e)}}
-return NextResponse.json(output)}catch{return NextResponse.json({error:"Analysis failed. Please retry."},{status:500})}}
+import { NextResponse } from "next/server";
+import { analyseScam, ScamAnalysisError } from "@/lib/ai/analyse-scam";
+import { analysisRequestSchema } from "@/lib/ai/schema";
+
+export const runtime = "nodejs";
+export const maxDuration = 45;
+
+const WINDOW_MS = 60_000;
+const MAX_REQUESTS = 10;
+const hits = new Map<string, { count: number; resetAt: number }>();
+
+function clientIp(request: Request) {
+  return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+}
+
+function isRateLimited(ip: string) {
+  const now = Date.now();
+  const entry = hits.get(ip);
+  if (!entry || entry.resetAt <= now) {
+    hits.set(ip, { count: 1, resetAt: now + WINDOW_MS });
+    return false;
+  }
+  entry.count += 1;
+  return entry.count > MAX_REQUESTS;
+}
+
+export async function POST(request: Request) {
+  try {
+    if (isRateLimited(clientIp(request))) {
+      return NextResponse.json(
+        { error: "Too many checks. Please wait one minute and try again.", code: "RATE_LIMITED" },
+        { status: 429 },
+      );
+    }
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "The request body must be valid JSON." }, { status: 400 });
+    }
+
+    const parsed = analysisRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message || "Invalid analysis request." },
+        { status: 400 },
+      );
+    }
+
+    return NextResponse.json(await analyseScam(parsed.data));
+  } catch (error) {
+    if (error instanceof ScamAnalysisError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    }
+    console.error("Analysis route failed", error);
+    return NextResponse.json({ error: "Analysis failed unexpectedly. Please retry." }, { status: 500 });
+  }
+}

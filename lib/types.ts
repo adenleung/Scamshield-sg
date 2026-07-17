@@ -1,3 +1,13 @@
-export type RiskLevel="Low Risk"|"Suspicious"|"High Risk"|"Critical Risk";
-export type WarningSign={indicatorName:string;explanation:string;evidence:string;scoreContribution:number};
-export type AnalysisResult={id:string;riskScore:number;riskLevel:RiskLevel;scamCategory:string;confidence:number;summary:string;warningSigns:WarningSign[];suspiciousPhrases:string[];recommendedActions:string[];submissionType:string;platform:string;submittedText:string;submittedUrl?:string;createdAt:string};
+import type { ScamAnalysis, WarningSign } from "./ai/schema";
+
+export type { WarningSign };
+export type RiskLevel = ScamAnalysis["riskLevel"];
+
+export type AnalysisResult = ScamAnalysis & {
+  id: string;
+  submissionType: string;
+  platform: string;
+  submittedText: string;
+  submittedUrl?: string;
+  createdAt: string;
+};
