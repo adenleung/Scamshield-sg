@@ -1,0 +1,23 @@
+import type {RiskLevel,WarningSign} from "./types";
+const rules=[
+ {name:"Requests for OTP or password",re:/\b(otp|one[- ]time password|password|singpass)\b/i,score:30,category:"Phishing",ex:"Legitimate organisations should not ask for passwords or OTPs through messages."},
+ {name:"Urgent payment request",re:/\b(transfer|pay|payment|send money).{0,35}\b(now|today|immediately|urgent)\b|\b(now|today|immediately|urgent).{0,35}\b(transfer|pay|payment)\b/i,score:25,category:"Impersonation",ex:"Urgency is often used to prevent independent verification."},
+ {name:"Suspicious or shortened URL",re:/(bit\.ly|tinyurl\.com|t\.co|goo\.gl|https?:\/\/[^\s]*(@|xn--))/i,score:20,category:"Phishing",ex:"Shortened or obscured links can conceal their true destination."},
+ {name:"Guaranteed investment returns",re:/\b(guaranteed|risk[- ]free)\b.{0,40}\b(return|profit|earn)|\b\d{2,3}%\b.{0,20}\b(month|week|return)/i,score:20,category:"Investment scam",ex:"No legitimate investment can guarantee high returns without risk."},
+ {name:"Government impersonation",re:/\b(iras|cpf|police|government|ica|mas|moh|singpass officer)\b/i,score:20,category:"Government impersonation",ex:"Scammers frequently impersonate Singapore agencies to gain trust."},
+ {name:"APK download request",re:/\b(apk|install (this |the )?app|sideload)\b/i,score:30,category:"Malware",ex:"APK files sent outside trusted app stores may contain malware."},
+ {name:"Threatens account suspension",re:/\b(account|service).{0,35}\b(suspend|restrict|block|terminate|close)/i,score:15,category:"Phishing",ex:"Threats of immediate account loss are a common pressure tactic."},
+ {name:"Cryptocurrency payment request",re:/\b(bitcoin|crypto|usdt|ethereum|wallet address)\b/i,score:10,category:"Investment scam",ex:"Cryptocurrency transfers are difficult to reverse."},
+ {name:"Requests private communication",re:/\b(move|contact|message).{0,25}\b(whatsapp|telegram|privately|private chat)\b/i,score:10,category:"Job scam",ex:"Moving off-platform can bypass safety controls."},
+ {name:"Personal bank-account transfer",re:/\b(personal account|paynow|bank transfer).{0,40}\b(account|number|mobile)\b/i,score:15,category:"E-commerce scam",ex:"Business payments to personal accounts deserve extra verification."}
+];
+export function level(score:number):RiskLevel{return score>=80?"Critical Risk":score>=60?"High Risk":score>=30?"Suspicious":"Low Risk"}
+export function maskCredentials(s:string){return s.replace(/\b\d{6}\b/g,"******").replace(/((?:password|otp|pin)\s*[:=]?\s*)\S+/gi,"$1******").replace(/\b(?:\d[ -]*?){13,19}\b/g,"**** **** **** ****")}
+export function analyseLocally(text:string,url=""){
+ const content=`${text} ${url}`;const warningSigns:WarningSign[]=[];let score=0;let category="Unclear / needs verification";
+ for(const r of rules){const m=content.match(r.re);if(m){score+=r.score;category=r.category;warningSigns.push({indicatorName:r.name,explanation:r.ex,evidence:maskCredentials(m[0]).slice(0,140),scoreContribution:r.score})}}
+ try{if(url){const u=new URL(url.startsWith("http")?url:`https://${url}`);if(u.protocol==="https:"&&/\.(gov\.sg|com\.sg)$/.test(u.hostname)&&!warningSigns.some(w=>w.indicatorName.includes("Suspicious"))){score-=20;warningSigns.push({indicatorName:"Recognised secure Singapore domain format",explanation:"HTTPS and an expected Singapore domain reduce risk, but do not prove safety.",evidence:u.hostname,scoreContribution:-20})}if(/\.(apk|exe|scr|zip)$/i.test(u.pathname)){score+=30;warningSigns.push({indicatorName:"Dangerous file download",explanation:"The link appears to download an executable or archive.",evidence:u.pathname,scoreContribution:30})}}}catch{}
+ score=Math.max(0,Math.min(100,score));const phrases=warningSigns.filter(w=>w.scoreContribution>0).map(w=>w.evidence).filter(Boolean).slice(0,8);
+ const actions=score>=60?["Do not transfer money","Do not click the link","Do not share your OTP","Block the sender","Contact your bank if you acted","Call ScamShield at 1799"]:["Verify through an official channel","Do not share passwords or OTPs","Pause before acting","Check the sender independently"];
+ return {riskScore:score,riskLevel:level(score),scamCategory:category,confidence:Math.min(96,55+warningSigns.filter(w=>w.scoreContribution>0).length*8),summary:score>=60?"Multiple strong scam indicators were detected. Stop and verify independently before taking any action.":score>=30?"Some warning signs were detected. Treat this content cautiously and verify it independently.":"Few common scam indicators were detected, but this does not guarantee the content is safe.",warningSigns,suspiciousPhrases:phrases,recommendedActions:actions};
+}

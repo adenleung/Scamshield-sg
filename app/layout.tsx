@@ -1,0 +1,3 @@
+import type {Metadata} from "next";import "./globals.css";import {Navbar,Footer} from "@/components/layout";
+export const metadata:Metadata={title:{default:"ScamShield AI+ | Singapore Scam Detection Tool",template:"%s | ScamShield AI+"},description:"Analyse suspicious messages, investment offers, phishing links and QR codes with an explainable Singapore-focused scam risk checker.",keywords:["scam detection tool","Singapore scam awareness","investment scam checker","phishing message analyser","QR-code safety checker"]};
+export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="en-SG"><body><Navbar/><main>{children}</main><Footer/></body></html>}

@@ -1,0 +1,4 @@
+import {z} from "zod";
+export const warningSchema=z.object({indicatorName:z.string(),explanation:z.string(),evidence:z.string(),scoreContribution:z.number().int().min(-30).max(40)});
+export const analysisSchema=z.object({riskScore:z.number().min(0).max(100),riskLevel:z.enum(["Low Risk","Suspicious","High Risk","Critical Risk"]),scamCategory:z.string(),confidence:z.number().min(0).max(100),summary:z.string(),warningSigns:z.array(warningSchema),suspiciousPhrases:z.array(z.string()),recommendedActions:z.array(z.string())});
+export const requestSchema=z.object({text:z.string().max(20000).default(""),url:z.string().max(2048).optional(),submissionType:z.enum(["text","screenshot","link","qr","investment"]),platform:z.string().max(80).default("Other")}).refine(v=>v.text.trim()||v.url?.trim(),"Add content to analyse");
